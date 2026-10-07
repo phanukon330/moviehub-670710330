@@ -1,14 +1,48 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 // TODO ขั้นที่ 5 (Lab): import { putVote, addToWishlist, removeFromWishlist } from '../api/backend';
+import { putVote, getWishlist, addToWishlist, removeFromWishlist } from '../api/backend';
 
 // แถบปุ่มใต้ชื่อหนัง: ให้คะแนน 1 ถึง 10 และปุ่มเพิ่มเข้า wishlist (ต้อง login)
 function MovieActions({ movieId }) {
-  const { isLoggedIn } = useAuth();              // TODO ขั้นที่ 5 (Lab): ดึง token มาด้วย เพื่อส่งให้ putVote / addToWishlist
+  const { isLoggedIn, token } = useAuth();              // TODO ขั้นที่ 5 (Lab): ดึง token มาด้วย เพื่อส่งให้ putVote / addToWishlist
   const [myScore, setMyScore] = useState(null);
-  const [inWishlist, setInWishlist] = useState(false);
+  const [inWishlist, setInWishlist] = useState(null);
+  const [isWishlistLoading, setIsWishlistLoading] = useState(true);
   const [message, setMessage] = useState(null);
+
+  useEffect(() => {
+    let ignore = false;
+
+    async function loadWishlistStatus() {
+      if (!isLoggedIn || !token) {
+        setInWishlist(false);
+        setIsWishlistLoading(false);
+        return;
+      }
+
+      setIsWishlistLoading(true);
+      setMessage(null);
+
+      try {
+        const { items } = await getWishlist(token);
+        if (!ignore) {
+          setInWishlist(items.some(item => Number(item.id) === Number(movieId)));
+        }
+      } catch (err) {
+        if (!ignore) {
+          setInWishlist(null);
+          setMessage(err.message);
+        }
+      } finally {
+        if (!ignore) setIsWishlistLoading(false);
+      }
+    }
+
+    loadWishlistStatus();
+    return () => { ignore = true; };
+  }, [isLoggedIn, token, movieId]);
 
   if (!isLoggedIn) {
     return (
@@ -18,16 +52,35 @@ function MovieActions({ movieId }) {
     );
   }
 
+  //ทำส่วนตรงนี้
   async function handleVote(score) {
     // TODO ขั้นที่ 5 (Lab): await putVote(movieId, score, token) ก่อน แล้วค่อย setMyScore ถ้าพลาดให้ setMessage(err.message)
-    setMyScore(score);                             // ตอนนี้เปลี่ยนแค่บนจอ refresh แล้วหาย เพราะยังไม่ได้ส่งไป server
-    setMessage('คะแนนยังอยู่แค่บนจอ ยังไม่ได้ส่งไป API (ขั้นที่ 5)');
+    setMessage(null);
+
+    try {
+      await putVote(movieId, score, token);
+      setMyScore(score);
+      setMessage('บันทึกคะแนนแล้ว');
+    } catch (err) {
+      setMessage(err.message);
+    }
   }
 
   async function handleWishlist() {
     // TODO ขั้นที่ 5 (Lab): ถ้า inWishlist ให้ await removeFromWishlist ไม่งั้น await addToWishlist แล้วค่อยสลับค่า
-    setInWishlist(!inWishlist);
-    setMessage('ยังไม่ได้ส่งไป API (ขั้นที่ 5) เปิดหน้า "อยากดู" จะไม่เจอเรื่องนี้');
+    setMessage(null);
+
+    try {
+      if (inWishlist) {
+        await removeFromWishlist(movieId, token);
+      } else {
+        await addToWishlist(movieId, token);
+      }
+
+      setInWishlist(!inWishlist);
+    } catch (err) {
+      setMessage(err.message);
+    }
   }
 
   return (
@@ -43,9 +96,12 @@ function MovieActions({ movieId }) {
         ))}
       </div>
       <button onClick={handleWishlist}
+              disabled={isWishlistLoading || inWishlist === null}
               className={'rounded-lg border px-4 py-2 text-sm ' +
                 (inWishlist ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-emerald-200 bg-white text-slate-600 hover:bg-emerald-50')}>
-        {inWishlist ? '❤️ อยู่ในรายการที่อยากดูแล้ว' : '🤍 เพิ่มเข้ารายการที่อยากดู'}
+        {isWishlistLoading ? 'กำลังตรวจสอบรายการ...' :
+          inWishlist === null ? 'ตรวจสอบรายการไม่สำเร็จ' :
+            inWishlist ? '❤️ อยู่ในรายการที่อยากดูแล้ว' : '🤍 เพิ่มเข้ารายการที่อยากดู'}
       </button>
       {message && <p className="text-sm text-slate-500">{message}</p>}
     </div>
